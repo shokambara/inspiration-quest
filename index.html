@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI画像生成バトル</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #00ffff; /* Cyan */
+            --secondary-color: #ff00ff; /* Magenta */
+            --bg-color: #0a0a1a;
+            --container-bg: #1a1a2e;
+            --text-color: #e0e0e0;
+        }
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(circle at top right, rgba(0, 255, 255, 0.07), transparent 50%),
+                              radial-gradient(circle at bottom left, rgba(255, 0, 255, 0.07), transparent 50%);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        .orbitron { font-family: 'Orbitron', sans-serif; }
+        .app-container {
+            width: 100%;
+            max-width: 1200px;
+            background-color: var(--container-bg);
+            border: 1px solid var(--primary-color);
+            border-radius: 1rem;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5), 0 0 40px rgba(0, 255, 255, 0.3);
+            padding: 3rem 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .btn {
+            font-family: 'Orbitron', sans-serif;
+            padding: 0.75rem 1.5rem;
+            border: 1px solid var(--primary-color);
+            border-radius: 0.5rem;
+            background-color: transparent;
+            color: var(--primary-color);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: relative;
+            overflow: hidden;
+        }
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background-color: rgba(0, 255, 255, 0.2);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.4s ease, height 0.4s ease;
+        }
+        .btn:hover::before {
+            width: 200%;
+            height: 200%;
+        }
+        .btn:disabled {
+            border-color: #4A5568;
+            color: #4A5568;
+            cursor: not-allowed;
+        }
+        .btn-secondary {
+            border-color: var(--secondary-color);
+            color: var(--secondary-color);
+        }
+        .btn-secondary::before {
+             background-color: rgba(255, 0, 255, 0.2);
+        }
+        .hidden { display: none; }
+        select, input[type="text"], input[type="range"], textarea {
+            background-color: rgba(0,0,0,0.3);
+            border: 1px solid var(--primary-color);
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+            color: var(--text-color);
+            width: 100%;
+        }
+        textarea { resize: none; }
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 100;
+        }
+        .modal-content {
+            background-color: var(--container-bg);
+            padding: 1.5rem;
+            border-radius: 1rem;
+            border: 1px solid var(--secondary-color);
+            box-shadow: 0 0 20px var(--secondary-color);
+            text-align: center;
+            max-width: 90%;
+            width: 500px;
+        }
+        .loader {
+            border: 4px solid rgba(255, 255, 255, 0.2);
+            border-left-color: var(--primary-color);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .score-circle {
+            width: 100px; height: 100px; border-radius: 50%;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center; position: relative;
+        }
+        .score-circle .score-value { font-size: 2rem; line-height: 1; }
+        .score-circle .score-text { font-size: 0.75rem; }
+        .picture-frame {
+            background: linear-gradient(45deg, #4a2c1a, #2c1a0e);
+            padding: 1rem; border-radius: 0.5rem;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5), inset 0 0 15px rgba(0,0,0,0.5);
+            border: 2px solid #654321;
+        }
+        .picture-frame img { border: 4px solid #f5deb3; }
+    </style>
+</head>
+<body>
+    <div id="config-error" class="hidden fixed top-0 left-0 w-full bg-red-800 text-white p-4 text-center z-[200]">
+        <strong>設定エラー:</strong> FirebaseまたはGeminiのAPIキーが設定されていません。index.htmlファイルを編集し、ご自身のキーに置き換えてください。
+    </div>
+    <div id="app-container" class="app-container">
+        <!-- Setup Screen -->
+        <div id="setup-screen" class="flex flex-col items-center gap-8">
+            <h1 class="text-3xl sm:text-4xl orbitron text-center" style="text-shadow: 0 0 10px var(--primary-color);">AI画像生成バトル</h1>
+            <p class="text-center max-w-2xl text-sm sm:text-base">お題の言葉を使わずに、説明文だけでAIに画像を生成させるゲームです。<br>あなたの表現力で、AIにどれだけお題を伝えられるか挑戦しよう！</p>
+            
+            <div class="w-full max-w-md space-y-6">
+                 <div class="flex flex-col gap-2">
+                    <label for="player-mode-select" class="orbitron">プレイモード</label>
+                    <select id="player-mode-select" class="w-full">
+                        <option value="single">一人で遊ぶ</option>
+                        <option value="multiplayer">二人で対戦</option>
+                    </select>
+                </div>
+                <div class="flex flex-col gap-2">
+                    <label for="game-mode-select" class="orbitron">ゲームモード</label>
+                    <select id="game-mode-select" class="w-full">
+                        <option value="normal">通常モード</option>
+                        <option value="one-shot">一発勝負モード</option>
+                    </select>
+                </div>
+                <div class="flex flex-col gap-2">
+                    <label for="genre-select" class="orbitron">ジャンル選択</label>
+                    <select id="genre-select" class="w-full">
+                        <option value="all">オールジャンル</option>
+                        <option value="anime">アニメ・漫画</option>
+                        <option value="animals">動物</option>
+                        <option value="landmarks">世界のランドマーク</option>
+                        <option value="foods">食べ物</option>
+                        <option value="historicalFigures">歴史上の人物</option>
+                        <option value="movies">映画</option>
+                        <option value="mythicalCreatures">伝説の生き物</option>
+                    </select>
+                </div>
+                <div class="flex flex-col gap-2">
+                    <label for="time-limit" class="orbitron">制限時間: <span id="time-limit-value">180</span>秒</label>
+                    <input type="range" id="time-limit" min="10" max="180" step="10" value="180" class="w-full">
+                </div>
+                <div class="flex flex-col gap-2">
+                    <label for="difficulty-select" class="orbitron">採点モード</label>
+                    <select id="difficulty-select" class="w-full">
+                        <option value="spicy">辛口</option>
+                        <option value="sweet">甘口</option>
+                    </select>
+                </div>
+            </div>
+            <button id="start-button" class="btn btn-secondary">ゲーム開始</button>
+        </div>
+
+        <!-- Waiting Screen -->
+        <div id="waiting-screen" class="hidden flex-col items-center gap-6">
+            <h2 class="text-2xl orbitron">対戦相手を待っています...</h2>
+            <p>このURLを友達に共有してください:</p>
+            <div class="flex gap-2 w-full max-w-lg">
+                <input type="text" id="share-url-input" readonly class="flex-grow">
+                <button id="copy-url-button" class="btn">コピー</button>
+            </div>
+            <div class="loader"></div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="hidden">
+            <header class="flex flex-col sm:flex-row justify-between items-center mb-4 border-b border-gray-700 pb-2 gap-2">
+                <div class="text-center sm:text-left">
+                    <p class="text-sm text-gray-400">ジャンル: <span id="game-genre"></span></p>
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-xl sm:text-2xl orbitron">お題: <span id="game-topic-display"></span></h2>
+                    </div>
+                </div>
+                <div class="text-center sm:text-right">
+                    <p class="text-2xl sm:text-3xl orbitron" id="timer">03:00</p>
+                </div>
+            </header>
+            <main class="grid md:grid-cols-2 gap-8">
+                <!-- Player 1 (You) -->
+                <div id="my-player-area" class="flex flex-col gap-4">
+                    <h3 class="text-lg sm:text-xl orbitron">あなた (<span id="my-score" class="text-primary-color">0</span>点)</h3>
+                    <div id="my-input-area">
+                        <p class="text-sm">お題の言葉を使わずに、AIに伝わるように説明してください。</p>
+                        <textarea id="prompt-input" rows="5" class="w-full text-sm"></textarea>
+                        <button id="generate-button" class="btn w-full mt-2">画像生成</button>
+                    </div>
+                    <div id="my-result-area" class="w-full aspect-square bg-black/30 rounded-lg flex items-center justify-center border border-dashed border-gray-600">
+                        <p class="text-gray-400 text-sm">ここに画像が生成されます</p>
+                    </div>
+                    <div id="my-evaluation-area" class="w-full p-2 bg-black/30 rounded-lg min-h-[80px] flex items-center justify-center">
+                         <p class="text-gray-400 text-sm">ここにAIの評価が表示されます</p>
+                    </div>
+                </div>
+                <!-- Player 2 (Opponent) -->
+                <div id="opponent-player-area" class="flex flex-col gap-4">
+                     <h3 class="text-lg sm:text-xl orbitron">対戦相手 (<span id="opponent-score" class="text-secondary-color">0</span>点)</h3>
+                     <div id="opponent-result-area" class="w-full aspect-square bg-black/30 rounded-lg flex items-center justify-center border border-dashed border-gray-600">
+                        <p class="text-gray-400 text-sm">相手の画像を待っています...</p>
+                    </div>
+                     <div id="opponent-evaluation-area" class="w-full p-2 bg-black/30 rounded-lg min-h-[80px] flex items-center justify-center">
+                        <p class="text-gray-400 text-sm">相手の評価を待っています...</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="modal-overlay hidden">
+            <div class="flex flex-col items-center gap-4">
+                <div class="loader"></div>
+                <p id="loading-text" class="orbitron text-lg">AIが思考中...</p>
+            </div>
+        </div>
+        
+        <!-- Game Over Modal -->
+        <div id="game-over-modal" class="modal-overlay hidden">
+            <div class="modal-content flex flex-col items-center gap-4">
+                <h2 id="game-result-title" class="text-2xl sm:text-3xl orbitron"></h2>
+                
+                <div class="flex justify-around w-full">
+                    <div class="flex flex-col items-center gap-2">
+                        <h4 class="orbitron">あなた</h4>
+                        <div id="final-image-frame-p1" class="picture-frame hidden">
+                            <img id="final-image-display-p1" src="" alt="あなたの最終画像" class="w-32 h-32 sm:w-48 sm:h-48 object-contain">
+                        </div>
+                        <p id="final-score-p1" class="text-3xl orbitron text-primary-color">0</p>
+                    </div>
+                    <div id="final-image-frame-p2-container" class="flex flex-col items-center gap-2">
+                        <h4 class="orbitron">対戦相手</h4>
+                        <div id="final-image-frame-p2" class="picture-frame hidden">
+                            <img id="final-image-display-p2" src="" alt="相手の最終画像" class="w-32 h-32 sm:w-48 sm:h-48 object-contain">
+                        </div>
+                        <p id="final-score-p2" class="text-3xl orbitron text-secondary-color">0</p>
+                    </div>
+                </div>
+                <p id="correct-answer" class="text-xl sm:text-2xl font-bold"></p>
+                <div id="final-feedback-container" class="w-full mt-2 p-3 bg-black/30 rounded-lg text-left">
+                    <h4 class="font-bold orbitron text-center mb-2">AIからの総評</h4>
+                    <p id="final-feedback-text" class="text-sm">総評を生成中...</p>
+                </div>
+                <button id="play-again-button" class="btn">もう一度プレイ</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Firebase Imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // UI Elements
+        const ui = {
+            setupScreen: document.getElementById('setup-screen'),
+            waitingScreen: document.getElementById('waiting-screen'),
+            gameScreen: document.getElementById('game-screen'),
+            loadingOverlay: document.getElementById('loading-overlay'),
+            loadingText: document.getElementById('loading-text'),
+            gameOverModal: document.getElementById('game-over-modal'),
+            configErrorDiv: document.getElementById('config-error'),
+            playerModeSelect: document.getElementById('player-mode-select'),
+            gameModeSelect: document.getElementById('game-mode-select'),
+            genreSelect: document.getElementById('genre-select'),
+            timeLimitInput: document.getElementById('time-limit'),
+            timeLimitValue: document.getElementById('time-limit-value'),
+            difficultySelect: document.getElementById('difficulty-select'),
+            startButton: document.getElementById('start-button'),
+            shareUrlInput: document.getElementById('share-url-input'),
+            copyUrlButton: document.getElementById('copy-url-button'),
+            gameGenre: document.getElementById('game-genre'),
+            gameTopicDisplay: document.getElementById('game-topic-display'),
+            timerDisplay: document.getElementById('timer'),
+            myPlayerArea: document.getElementById('my-player-area'),
+            myScoreDisplay: document.getElementById('my-score'),
+            promptInput: document.getElementById('prompt-input'),
+            generateButton: document.getElementById('generate-button'),
+            myResultArea: document.getElementById('my-result-area'),
+            myEvaluationArea: document.getElementById('my-evaluation-area'),
+            opponentPlayerArea: document.getElementById('opponent-player-area'),
+            opponentScoreDisplay: document.getElementById('opponent-score'),
+            opponentResultArea: document.getElementById('opponent-result-area'),
+            opponentEvaluationArea: document.getElementById('opponent-evaluation-area'),
+            gameResultTitle: document.getElementById('game-result-title'),
+            finalScoreP1: document.getElementById('final-score-p1'),
+            finalImageFrameP1: document.getElementById('final-image-frame-p1'),
+            finalImageDisplayP1: document.getElementById('final-image-display-p1'),
+            finalScoreP2: document.getElementById('final-score-p2'),
+            finalImageFrameP2: document.getElementById('final-image-frame-p2'),
+            finalImageDisplayP2: document.getElementById('final-image-display-p2'),
+            finalImageFrameP2Container: document.getElementById('final-image-frame-p2-container'),
+            correctAnswerDisplay: document.getElementById('correct-answer'),
+            finalFeedbackText: document.getElementById('final-feedback-text'),
+            playAgainButton: document.getElementById('play-again-button'),
+
+            showScreen(screen) {
+                ['setup-screen', 'waiting-screen', 'game-screen'].forEach(s => document.getElementById(s).classList.add('hidden'));
+                if(screen) document.getElementById(screen).classList.remove('hidden');
+            },
+            
+            setupGameUI(settings, isMultiplayer) {
+                this.showScreen('game-screen');
+                this.opponentPlayerArea.classList.toggle('hidden', !isMultiplayer);
+                this.myPlayerArea.querySelector('h3').innerHTML = isMultiplayer ? `あなた (<span id="my-score" class="text-primary-color">0</span>点)` : `スコア (<span id="my-score" class="text-primary-color">0</span>点)`;
+                this.gameGenre.textContent = settings.displayGenreName;
+                this.gameTopicDisplay.textContent = settings.topic.name;
+                [this.myResultArea, this.myEvaluationArea, this.opponentResultArea, this.opponentEvaluationArea].forEach(el => {
+                    el.innerHTML = `<p class="text-gray-400 text-sm">${el.id.includes('my') ? 'ここに結果が表示されます' : '相手を待っています...'}</p>`;
+                });
+            },
+
+            updateMultiplayerUI(gameData, playerNumber) {
+                const myData = playerNumber === 1 ? gameData.player1 : gameData.player2;
+                const opponentData = playerNumber === 1 ? gameData.player2 : gameData.player1;
+
+                this.myScoreDisplay.textContent = myData.score;
+                this.opponentScoreDisplay.textContent = opponentData.score;
+                
+                if (opponentData.imageUrl) {
+                    this.opponentResultArea.innerHTML = `<img src="${opponentData.imageUrl}" class="w-full h-full object-contain rounded-lg">`;
+                }
+            },
+
+            showGameOver(gameData, playerNumber, localData) {
+                if (gameData) { // Multiplayer
+                    const myData = playerNumber === 1 ? gameData.player1 : gameData.player2;
+                    const opponentData = playerNumber === 1 ? gameData.player2 : p1Data;
+                    
+                    this.finalScoreP1.textContent = myData.score;
+                    if(myData.imageUrl) {
+                        this.finalImageDisplayP1.src = myData.imageUrl;
+                        this.finalImageFrameP1.classList.remove('hidden');
+                    }
+                    this.finalScoreP2.textContent = opponentData.score;
+                    if (opponentData.imageUrl) {
+                        this.finalImageDisplayP2.src = opponentData.imageUrl;
+                        this.finalImageFrameP2.classList.remove('hidden');
+                    } else {
+                        this.finalImageFrameP2.innerHTML = '<p class="text-white text-xs p-4">相手は画像を生成しませんでした</p>';
+                        this.finalImageFrameP2.classList.remove('hidden');
+                    }
+                    if (myData.score > opponentData.score) this.gameResultTitle.textContent = "あなたの勝利！";
+                    else if (opponentData.score > myData.score) this.gameResultTitle.textContent = "あなたの負け...";
+                    else this.gameResultTitle.textContent = "引き分け";
+                    
+                    generateFinalFeedback(myData.prompt, gameData.topic);
+                } else { // Single player
+                    this.gameResultTitle.textContent = "終了！";
+                    this.finalImageFrameP2Container.classList.add('hidden');
+                    this.finalScoreP1.textContent = localData.latestScore;
+                    if (localData.lastGeneratedImageUrl) {
+                        this.finalImageDisplayP1.src = localData.lastGeneratedImageUrl;
+                        this.finalImageFrameP1.classList.remove('hidden');
+                    }
+                    generateFinalFeedback(localData.lastUserPrompt, localData.currentTopic);
+                }
+                this.correctAnswerDisplay.textContent = `お題: 「${localData.currentTopic.name}」`;
+                this.gameOverModal.classList.remove('hidden');
+            }
+        };
+        
+        // Game State
+        let db, auth, userId, gameId;
+        let gameUnsubscribe = null;
+        let currentTopic = null;
+        let timeRemaining = 180;
+        let timerInterval = null;
+        let isGenerating = false;
+        let gameActive = false;
+        let playerNumber = null;
+        let latestScore = 0;
+        let lastGeneratedImageUrl = '';
+        let lastUserPrompt = '';
+        let geminiApiKey = '';
+
+        const topics = {
+            anime: [{ name: 'ドラえもん', en_name: 'Doraemon, a blue, round, robotic cat' },{ name: 'ピカチュウ', en_name: 'Pikachu, a yellow electric mouse pokemon' },{ name: 'トトロ', en_name: 'Totoro, a giant, furry, grey forest spirit' },{ name: 'アンパンマン', en_name: 'Anpanman, a superhero with a head made of bread' },{ name: 'ルフィ', en_name: 'Luffy from One Piece, a boy with a straw hat and rubber powers' }],
+            animals: [{ name: 'パンダ', en_name: 'Panda, a black and white bear that eats bamboo' },{ name: 'キリン', en_name: 'Giraffe, a tall African animal with a very long neck' },{ name: 'ペンギン', en_name: 'Penguin, a black and white flightless bird from Antarctica' },{ name: 'カピバラ', en_name: 'Capybara, the worlds largest rodent, known for being calm' },{ name: 'フラミンゴ', en_name: 'Flamingo, a pink bird that stands on one leg' }],
+            landmarks: [{ name: '東京タワー', en_name: 'Tokyo Tower, a red and white communication tower in Japan' },{ name: 'エッフェル塔', en_name: 'Eiffel Tower, a wrought-iron lattice tower in Paris' },{ name: '自由の女神', en_name: 'Statue of Liberty, a colossal neoclassical sculpture on Liberty Island in New York Harbor' },{ name: 'ピラミッド', en_name: 'The Great Pyramid of Giza, an ancient stone structure in Egypt' },{ name: '富士山', en_name: 'Mount Fuji, a snow-capped volcano, the tallest peak in Japan' }],
+            foods: [{ name: '寿司', en_name: 'Sushi, a Japanese dish of prepared vinegared rice, usually with some seafood' },{ name: 'ラーメン', en_name: 'Ramen, a Japanese noodle soup' },{ name: 'カレーライス', en_name: 'Curry Rice, a popular Japanese dish of rice with curry sauce' },{ name: 'ピザ', en_name: 'Pizza, an Italian dish' },{ name: 'ハンバーガー', en_name: 'Hamburger, a sandwich with a meat patty' }],
+            historicalFigures: [{ name: '織田信長', en_name: 'Oda Nobunaga, a Japanese daimyo of the Sengoku period' },{ name: 'クレオパトラ', en_name: 'Cleopatra, the last active ruler of the Ptolemaic Kingdom of Egypt' },{ name: 'アインシュタイン', en_name: 'Albert Einstein, a physicist with wild white hair' },{ name: '坂本龍馬', en_name: 'Sakamoto Ryoma, a prominent samurai from the Bakumatsu period in Japan' },{ name: 'ジャンヌ・ダルク', en_name: 'Joan of Arc, a young woman in armor, holding a banner' }],
+            movies: [{ name: 'E.T.', en_name: 'E.T. the Extra-Terrestrial, a small brown alien with a glowing finger' },{ name: 'ダース・ベイダー', en_name: 'Darth Vader from Star Wars, a tall figure in black armor with a flowing cape and a red lightsaber' },{ name: 'デロリアン', en_name: 'DeLorean time machine from Back to the Future, a sports car with gull-wing doors' },{ name: 'ハリー・ポッター', en_name: 'Harry Potter, a young wizard with a lightning bolt scar on his forehead' },{ name: 'タイタニック号', en_name: 'The Titanic, a massive ocean liner sinking in the icy Atlantic' }],
+            mythicalCreatures: [{ name: 'ドラゴン', en_name: 'Dragon, a large, serpent-like legendary creature that appears in the folklore of many cultures worldwide' },{ name: 'ユニコーン', en_name: 'Unicorn, a legendary creature that has been described since antiquity as a beast with a single large, pointed, spiraling horn projecting from its forehead' },{ name: '河童', en_name: 'Kappa, a reptilian humanoid creature with a water-filled dish on its head' },{ name: 'フェニックス', en_name: 'Phoenix, a long-lived bird that cyclically regenerates or is otherwise born again from fire' },{ name: 'ケンタウロス', en_name: 'Centaur, a creature from Greek mythology with the upper body of a human and the lower body and legs of a horse' }]
+        };
+        
+        async function callApi(url, payload) {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error("API Error:", errorData);
+                throw new Error(`API Error: ${errorData.error?.message || response.statusText}`);
+            }
+            return response.json();
+        }
+
+        async function callGemini(prompt, isJson = false, schema = null) {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
+            const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+            if (isJson) {
+                payload.generationConfig = {
+                    responseMimeType: "application/json",
+                    responseSchema: schema || {
+                        type: "OBJECT",
+                        properties: { score: { type: "NUMBER" }, reason: { type: "STRING" } },
+                        required: ["score", "reason"]
+                    }
+                };
+            }
+            const result = await callApi(apiUrl, payload);
+            if (result.candidates && result.candidates.length > 0) {
+                const text = result.candidates[0].content.parts[0].text;
+                return isJson ? JSON.parse(text) : text;
+            }
+            throw new Error("API response was empty or invalid.");
+        }
+
+        async function callImagen(prompt) {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiApiKey}`;
+            const payload = { instances: [{ prompt: prompt }], parameters: { "sampleCount": 1 } };
+            const result = await callApi(apiUrl, payload);
+            if (result.predictions && result.predictions.length > 0) {
+                return `data:image/png;base64,${result.predictions[0].bytesBase64Encoded}`;
+            }
+            throw new Error("Image generation failed.");
+        }
+
+        function getGameSettings() {
+            const selectedGenre = ui.genreSelect.value;
+            const genreForTopic = selectedGenre === 'all' ? Object.keys(topics)[Math.floor(Math.random() * Object.keys(topics).length)] : selectedGenre;
+            const genreTopics = topics[genreForTopic];
+            const topic = genreTopics[Math.floor(Math.random() * genreTopics.length)];
+            
+            return {
+                gameMode: ui.gameModeSelect.value,
+                genre: selectedGenre,
+                displayGenreName: ui.genreSelect.options[ui.genreSelect.selectedIndex].text,
+                timeLimit: parseInt(ui.timeLimitInput.value, 10),
+                difficulty: ui.difficultySelect.value,
+                topic: topic
+            };
+        }
+
+        function startTimer(isMultiplayer) {
+            clearInterval(timerInterval);
+            updateTimerDisplay();
+            timerInterval = setInterval(async () => {
+                if (!gameActive) {
+                    clearInterval(timerInterval);
+                    return;
+                }
+                
+                if (isMultiplayer && playerNumber === 1) {
+                     const gameRef = doc(db, 'games', gameId);
+                     if (timeRemaining > 0) {
+                        await updateDoc(gameRef, { timeRemaining: timeRemaining - 1 });
+                     } else if (gameActive) {
+                        await updateDoc(gameRef, { status: 'finished' });
+                     }
+                } else if (!isMultiplayer) {
+                    timeRemaining--;
+                    updateTimerDisplay();
+                    if (timeRemaining <= 0) {
+                       clearInterval(timerInterval);
+                       if (!isGenerating) gameManager.end(null);
+                    }
+                }
+            }, 1000);
+        }
+
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timeRemaining / 60).toString().padStart(2, '0');
+            const seconds = (timeRemaining % 60).toString().padStart(2, '0');
+            ui.timerDisplay.textContent = `${minutes}:${seconds}`;
+            if (timeRemaining <= 10 && timeRemaining > 0) {
+                ui.timerDisplay.style.color = 'var(--secondary-color)';
+                ui.timerDisplay.style.animation = 'pulse 1s infinite';
+            } else {
+                 ui.timerDisplay.style.color = 'var(--text-color)';
+                 ui.timerDisplay.style.animation = 'none';
+            }
+        }
+        
+        function getEvalPrompt(difficulty) {
+            const base = `The secret theme is "${currentTopic.en_name}". Based on the provided image, provide a score from 0 to 100 and a brief, one-or-two-sentence reason for your score in Japanese. The reason must be abstract and based on the scoring criteria. It must NOT contain any specific hints about the secret theme. Your response must be in JSON format with "score" and "reason" keys.`;
+            if (difficulty === 'spicy') {
+                return `You are a very strict art critic. ${base} Scoring criteria: 100=perfect, 80-99=very good, 60-79=good, 40-59=fair, 20-39=poor, 0-19=wrong.`;
+            }
+            return `You are a friendly and encouraging art teacher. ${base} Scoring criteria: 100=fantastic, 80-99=great, 60-79=good effort, 40-59=nice try, 0-39=interesting.`;
+        }
+        
+        const gameManager = {
+            async start() {
+                ui.startButton.disabled = true;
+                const isMulti = ui.playerModeSelect.value === 'multiplayer';
+                const settings = getGameSettings();
+                
+                if(isMulti) {
+                    ui.startButton.textContent = 'ルーム作成中...';
+                    await this.createMultiplayerGame(settings);
+                } else {
+                    this.startSinglePlayerGame(settings);
+                }
+                ui.startButton.disabled = false;
+                ui.startButton.textContent = 'ゲーム開始';
+            },
+            startSinglePlayerGame(settings) {
+                currentTopic = settings.topic;
+                timeRemaining = settings.timeLimit;
+                gameActive = true;
+                latestScore = 0;
+                lastGeneratedImageUrl = '';
+                lastUserPrompt = '';
+                ui.generateButton.disabled = false;
+                ui.setupGameUI(settings, false);
+                startTimer(false);
+            },
+            async createMultiplayerGame(settings) {
+                const newGameRef = doc(collection(db, `games`));
+                gameId = newGameRef.id;
+                const gameData = {
+                    ...settings,
+                    status: 'waiting',
+                    createdAt: serverTimestamp(),
+                    timeRemaining: settings.timeLimit,
+                    player1: { id: userId, score: 0, imageUrl: '', prompt: '', submitted: false },
+                    player2: { id: null, score: 0, imageUrl: '', prompt: '', submitted: false }
+                };
+                await setDoc(newGameRef, gameData);
+                const url = `${window.location.origin}${window.location.pathname}?gameId=${gameId}`;
+                ui.shareUrlInput.value = url;
+                ui.showScreen('waiting-screen');
+                this.listenToGame(gameId);
+            },
+            async joinGame(joinedGameId) {
+                const gameRef = doc(db, 'games', joinedGameId);
+                try {
+                    const gameSnap = await getDoc(gameRef);
+                    if (gameSnap.exists() && gameSnap.data().player2.id === null) {
+                        gameId = joinedGameId;
+                        await updateDoc(gameRef, { 'player2.id': userId, status: 'active' });
+                        this.listenToGame(gameId);
+                    } else {
+                        alert("この対戦ルームは無効か、すでに満員です。");
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }
+                } catch (error) {
+                    console.error("Error joining game:", error);
+                    alert("ゲームへの参加に失敗しました。");
+                }
+            },
+            listenToGame(id) {
+                if (gameUnsubscribe) gameUnsubscribe();
+                gameUnsubscribe = onSnapshot(doc(db, 'games', id), (docSnap) => {
+                    if (!docSnap.exists()) {
+                        this.reset();
+                        return;
+                    }
+                    const gameData = docSnap.data();
+
+                    if (!userId) return;
+                    if (!playerNumber) {
+                        if (gameData.player1.id === userId) playerNumber = 1;
+                        else if (gameData.player2.id === userId) playerNumber = 2;
+                    }
+
+                    if (gameData.status === 'active' && !gameActive) {
+                        gameActive = true;
+                        currentTopic = gameData.topic;
+                        timeRemaining = gameData.timeLimit;
+                        ui.setupGameUI(gameData, true);
+                        startTimer(true);
+                    }
+                    
+                    if (gameActive) {
+                        timeRemaining = gameData.timeRemaining;
+                        updateTimerDisplay();
+                        ui.updateMultiplayerUI(gameData, playerNumber);
+                        if (gameData.gameMode === 'one-shot' && gameData.player1.submitted && gameData.player2.submitted) {
+                             updateDoc(doc(db, 'games', gameId), { status: 'finished' });
+                        }
+                    }
+
+                    if (gameData.status === 'finished' && gameActive) {
+                        this.end(gameData);
+                    }
+                });
+            },
+            async generateImage() {
+                const userPrompt = ui.promptInput.value.trim();
+                if (!userPrompt || isGenerating || !gameActive) return;
+                
+                lastUserPrompt = userPrompt;
+                isGenerating = true;
+                ui.generateButton.disabled = true;
+                ui.loadingOverlay.classList.remove('hidden');
+
+                try {
+                    ui.loadingText.textContent = "プロンプトを翻訳中...";
+                    const translationPrompt = `Translate the following Japanese description into a vivid, detailed English prompt suitable for an image generation AI. Focus on visual details. Do not include the name "${currentTopic.name}" or "${currentTopic.en_name}". The final output must be only the English prompt itself. Japanese description: "${userPrompt}"`;
+                    const englishPrompt = await callGemini(translationPrompt);
+                    
+                    ui.loadingText.textContent = "画像を生成中...";
+                    const finalImagePrompt = `${englishPrompt}, digital art, vibrant colors`;
+                    const imageUrl = await callImagen(finalImagePrompt);
+                    lastGeneratedImageUrl = imageUrl;
+                    ui.myResultArea.innerHTML = `<img src="${imageUrl}" alt="Generated Image" class="w-full h-full object-contain rounded-lg">`;
+
+                    ui.loadingText.textContent = "AIが評価中...";
+                    const difficulty = ui.difficultySelect.value;
+                    const evalPrompt = getEvalPrompt(difficulty);
+                    const evaluation = await callGemini(evalPrompt, true);
+                    const { score, reason } = evaluation;
+
+                    latestScore = score;
+                    
+                    if (ui.playerModeSelect.value === 'multiplayer') {
+                        const gameRef = doc(db, 'games', gameId);
+                        const gameSnap = await getDoc(gameRef);
+                        if (gameSnap.exists()) {
+                            const gameData = gameSnap.data();
+                            const playerField = `player${playerNumber}`;
+                            const updatedPlayer = {
+                                ...gameData[playerField],
+                                score: score,
+                                imageUrl: imageUrl,
+                                prompt: userPrompt,
+                                submitted: true
+                            };
+                            await updateDoc(gameRef, { [playerField]: updatedPlayer });
+                        }
+                    } else {
+                        ui.myScoreDisplay.textContent = score;
+                    }
+                    
+                    const scoreColor = `hsl(${(score / 100) * 120}, 100%, 50%)`;
+                    ui.myEvaluationArea.innerHTML = `
+                        <div class="flex items-center gap-4 w-full">
+                            <div class="score-circle" style="background: radial-gradient(circle, ${scoreColor}33, transparent 70%); border: 3px solid ${scoreColor};">
+                                <span class="score-value">${score}</span>
+                                <span class="score-text">PTS</span>
+                            </div>
+                            <p class="flex-1 text-left text-sm">${reason}</p>
+                        </div>`;
+
+                } catch (error) {
+                    console.error(error);
+                    ui.myEvaluationArea.innerHTML = `<p class="text-red-500 text-sm"><b>APIエラー:</b> ${error.message}<br>Gemini APIキーが正しいか、Google CloudプロジェクトでAPIが有効になっているか確認してください。</p>`;
+                } finally {
+                    isGenerating = false;
+                    ui.loadingOverlay.classList.add('hidden');
+                    
+                    if (ui.gameModeSelect.value === 'one-shot' && ui.playerModeSelect.value === 'single') {
+                        this.end(null);
+                    } else if (gameActive && ui.gameModeSelect.value !== 'one-shot') {
+                        ui.generateButton.disabled = false;
+                    }
+                }
+            },
+            end(gameData) {
+                if (!gameActive) return;
+                gameActive = false;
+                clearInterval(timerInterval);
+                ui.generateButton.disabled = true;
+                
+                const localData = { currentTopic, latestScore, lastGeneratedImageUrl, lastUserPrompt };
+                ui.showGameOver(gameData, playerNumber, localData);
+            },
+            reset() {
+                if (gameUnsubscribe) gameUnsubscribe();
+                gameUnsubscribe = null;
+                gameId = null;
+                playerNumber = null;
+                gameActive = false;
+                
+                ui.gameOverModal.classList.add('hidden');
+                ui.showScreen('setup-screen');
+                
+                ui.finalImageFrameP2Container.classList.remove('hidden');
+                ui.finalImageFrameP1.classList.add('hidden');
+                ui.finalImageFrameP2.classList.add('hidden');
+
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        };
+        
+        async function generateFinalFeedback(userPrompt, topic) {
+             if (!userPrompt) {
+                ui.finalFeedbackText.textContent = '今回は画像が生成されませんでした。次回はぜひ挑戦してみてください！';
+                return;
+            }
+            try {
+                const feedbackPrompt = `あなたは画像生成ゲームのAIコーチです。正解のお題は「${topic.name} (${topic.en_name})」でした。プレイヤーが最後に入力したプロンプトは「${userPrompt}」です。このプロンプトをより良くするための、具体的で建設的なフィードバックを日本語で2〜3文で作成してください。例えば、どの特徴を加えればもっと良くなったか、どう表現すればより鮮明になったかなどを、励ますような口調で提案してください。`;
+                const feedback = await callGemini(feedbackPrompt);
+                ui.finalFeedbackText.textContent = feedback;
+            } catch (error) {
+                console.error("Feedback generation failed:", error);
+                ui.finalFeedbackText.textContent = '総評の生成に失敗しました。';
+            }
+        }
+
+        function initializeAppAndAuth() {
+            //【重要】この部分をご自身のFirebaseプロジェクトの情報に書き換えてください
+            const firebaseConfig = {
+  apiKey: "AIzaSyDEbyf7BWN2kaRf07WR8jsvgG69GmLkiKA",
+  authDomain: "ai-photo-generator-b40c1.firebaseapp.com",
+  projectId: "ai-photo-generator-b40c1",
+  storageBucket: "ai-photo-generator-b40c1.firebasestorage.app",
+  messagingSenderId: "681992073585",
+  appId: "1:681992073585:web:fe2553a7e26c981f2c46d0",
+};
+            
+            //【重要】この部分をご自身のGemini APIキーに書き換えてください
+            geminiApiKey = "AIzaSyD3Ndz8oWDXV3_P8877JgvAYemteJ2iRlg";
+
+            if (firebaseConfig.apiKey.startsWith("YOUR_") || geminiApiKey.startsWith("YOUR_")) {
+                ui.configErrorDiv.classList.remove('hidden');
+                ui.setupScreen.classList.add('hidden');
+                return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, user => {
+                    if (user) {
+                        userId = user.uid;
+                        const params = new URLSearchParams(window.location.search);
+                        if (params.has('gameId')) {
+                            ui.playerModeSelect.value = 'multiplayer';
+                            ui.playerModeSelect.disabled = true;
+                            gameManager.joinGame(params.get('gameId'));
+                        }
+                    } else {
+                        signInAnonymously(auth).catch(error => {
+                            console.error("Anonymous sign-in failed", error);
+                            ui.configErrorDiv.innerHTML = `<strong>認証エラー:</strong> FirebaseのAPIキーが正しくないか、匿名認証が有効になっていません。<br>Firebaseコンソールで設定を確認してください。`;
+                            ui.configErrorDiv.classList.remove('hidden');
+                        });
+                    }
+                });
+            } catch(e) {
+                 console.error("Firebase initialization failed", e);
+                 ui.configErrorDiv.innerHTML = `<strong>Firebase初期化エラー:</strong> firebaseConfigの情報が正しくない可能性があります。もう一度確認してください。`;
+                 ui.configErrorDiv.classList.remove('hidden');
+            }
+        }
+
+        // Event Listeners
+        ui.timeLimitInput.addEventListener('input', (e) => {
+            ui.timeLimitValue.textContent = e.target.value;
+        });
+        ui.startButton.addEventListener('click', () => gameManager.start());
+        ui.generateButton.addEventListener('click', () => gameManager.generateImage());
+        ui.playAgainButton.addEventListener('click', () => gameManager.reset());
+        ui.copyUrlButton.addEventListener('click', () => {
+            ui.shareUrlInput.select();
+            document.execCommand('copy');
+            ui.copyUrlButton.textContent = 'コピー完了！';
+            setTimeout(() => { ui.copyUrlButton.textContent = 'コピー'; }, 2000);
+        });
+        
+        // Start the app
+        initializeAppAndAuth();
+
+    </script>
+</body>
+</html>
